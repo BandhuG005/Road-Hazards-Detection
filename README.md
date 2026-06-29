@@ -71,13 +71,13 @@ To validate the safety-critical overrides, the pipeline was tested in CARLA Town
 
 ---
 
-## 📺 Visual Performance Gallery (CARLA Testing)
+## 📺 Visual Performance Gallery (Real-World Dataset Testing)
 
-Here is a side-by-side comparison of active HUD overlays under different camera perspectives spawned in CARLA:
+Here is a side-by-side comparison of active HUD overlays under different real-world camera perspectives:
 
-| Windshield Dashcam View (Speedbump) | Front-Bumper Outside View (Manhole) |
+| Windshield Dashcam View (Speedbump) | Front-Bumper View (Manhole Coverage) |
 | :---: | :---: |
-| <img src="assets/carla_driver_view_speedbump.png" alt="Windshield view speedbump" width="380"/> | <img src="assets/carla_outside_view_manhole.png" alt="Front bumper view manhole" width="380"/> |
+| <img src="assets/realworld_driver_view_speedbump.png" alt="Windshield view speedbump" width="380"/> | <img src="assets/realworld_outside_view_manhole.png" alt="Front bumper view manhole" width="380"/> |
 
 ---
 
