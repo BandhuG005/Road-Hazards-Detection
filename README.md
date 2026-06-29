@@ -1,43 +1,72 @@
 # Decoupled Parallel Hybrid Vision & Deep Reinforcement Learning Deceleration Control for ADAS
 
-This repository contains the complete implementation of a real-time Advanced Driver Assistance System (ADAS) pipeline combining multi-class road hazard detection, drivable area semantic segmentation, and an intelligent Deep Reinforcement Learning (DRL) deceleration agent.
+<div align="center">
+  
+  [![Python Version](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/)
+  [![PyTorch](https://img.shields.io/badge/PyTorch-%23EE4C2C.svg?style=flat&logo=PyTorch&logoColor=white)](https://pytorch.org/)
+  [![YOLOv8](https://img.shields.io/badge/YOLOv8-Ultralytics-orange.svg)](https://github.com/ultralytics/ultralytics)
+  [![CARLA v0.9.16](https://img.shields.io/badge/CARLA-v0.9.16-green.svg)](https://carla.org/)
+  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+</div>
+
+This repository contains the complete implementation of a real-time, safety-critical **Advanced Driver Assistance System (ADAS)** pipeline. The system combines multi-class road hazard detection, drivable area semantic segmentation, complementary sensor speed fusion, and an intelligent **Deep Reinforcement Learning (DRL) deceleration agent** validated in the CARLA Simulator.
 
 ---
 
-## 🚀 Key Features
+## 📷 Active ADAS Pipeline HUD Overlay
 
-1. **Dual-Stream Parallel Architecture:**
-   * **Road Segmentation Stream:** Custom ResNet-34/EfficientNet-B0 U-Net extracts lane bounds, alt lanes, and unpaved shoulders, incorporating a trapezoidal geometric fallback for weather/night segmentation failures.
-   * **Hazard Detection Stream:** Fine-tuned YOLOv8s baseline (`models/best.pt`) runs in parallel with a secondary YOLOv8l ensembled model (`models/best_large.pt`) to detect hazards (Potholes, Cracks, Barriers, Manholes, Waterlogging, Speedbumps).
-2. **Lower-Half Slicing-Aided Hyper Inference (LH-SAHI):**
-   * Solves spatial downsampling scale issues for small hazards (sub-20-pixel details like Cracks and Cones) by running local inference windows on the lower portion of the frame and merging coordinates via class-filtered Non-Maximum Suppression (NMS).
-3. **Deep Reinforcement Learning (DRL) Controller:**
-   * A PyTorch Deep Q-Network (DQN) agent controls vehicle braking force. It dynamically adapts speed on the visual HUD based on state: $[D_{\text{hazard}}, v_{\text{speed}}, S_{\text{severity}}, L_{\text{lane}}]$ trained in a custom simulator (reducing collisions to 0.0%).
-4. **Adaptive Preprocessing:**
-   * Context-aware Contrast Limited Adaptive Histogram Equalization (CLAHE) in LAB space and channel-stretching contrast defogging stabilize visibility under fog, dust, rain, and night splits.
-5. **Explainability & Epistemic Uncertainty Mapping:**
-   * **HiResCAM:** Visualizes target-filtered class activation maps strictly localized to hazard bodies (guaranteeing zero background leakage).
-   * **Monte Carlo Dropout:** Injects 2D dropout layers after C2f backbone blocks to calculate prediction variance (HIGH/MEDIUM/LOW certainty) via 10 stochastic inference passes.
-6. **Complementary Speed Fusion:**
-   * Employs complementary filtering to fuse high-frequency, responsive IMU integration with low-drift, stable GPS coordinates, reducing speed tracking error to **0.86 km/h RMSE** against CARLA simulator ground truth.
+Below is a captured frame showing the real-time visual HUD running inside the CARLA simulator. The pipeline overlays green lane semantic segmentation, YOLOv8 hazard bounding boxes, and the DQN agent's active braking decisions:
+
+<div align="center">
+  <img src="assets/carla_active_hazard_hud.png" alt="CARLA Active Hazard ADAS HUD" width="750"/>
+</div>
 
 ---
 
-## 📂 Repository Structure
+## 🚀 Key Modules & Architecture
 
-* `src/pipeline.py` - Core ADAS loop coordinating detection, segmentation, and control.
-* `src/preprocess.py` - Visual enhancement algorithms (CLAHE & contrast defogging).
-* `src/segmentation.py` - SMP U-Net wrapper with local import fallback.
-* `src/segmentation_model.py` - PyTorch U-Net model definition.
-* `src/yolo_detector.py` - YOLOv8 hazard bounding box detector with LH-SAHI coordinate mapping and Priority-based ensembling.
-* `src/distance_risk.py` - Bounding box distance projection, lane alignment, and Time-to-Collision (TTC) calculations.
-* `src/rl_deceleration_control.py` - Custom simulator and DQN training loop.
-* `src/explainability.py` - Explainability heatmaps (HiResCAM, Eigen-CAM, FAM, Grad-CAM).
-* `src/uncertainty.py` - Monte Carlo Dropout Hook Injection and uncertainty estimator.
-* `src/test_carla_speed.py` - GPS/IMU speed estimation complementary filter test.
-* `src/alerts_logging.py` - Haptic warning text, voice alerts (TTS), visual HUD rendering, and telemetry logging.
-* `src/verify_pipeline.py` - Simulation test harness for verification checks.
-* `run_pipeline.py` - Command-line interface to execute the pipeline on images or videos.
+### 1. Dual-Stream Parallel Perception
+The pipeline decouples segmentation and detection to run in parallel, maximizing frame-rate and safety redundancy:
+* **Road Segmentation Stream:** Custom ResNet-34 / EfficientNet-B0 U-Net (weights at `models/best_model_augmented.pth`) segments lane bounds, adjacent lanes, and unpaved shoulders. If severe weather or low illumination causes segmentation failure, a trapezoidal geometric fallback is automatically engaged.
+* **Hazard Detection Stream:** Fine-tuned YOLOv8s primary model (`models/best.pt`) runs alongside a secondary YOLOv8l ensembled model (`models/best_large.pt`) with a custom overlap filter to detect obstacles (Potholes, Cracks, Barriers, Manholes, Waterlogging, Speedbumps).
+
+### 2. Lower-Half Slicing-Aided Hyper Inference (LH-SAHI)
+To capture fine-grained road-surface defects (like cracks or distant traffic cones) without resizing the full image and losing spatial coordinates, the lower road region ($y \in [240, 640]$) is sliced into two overlapping $400 \times 400$ patches. Running inference on these patches magnifies details by **1.6x**, and a class-filtered Non-Maximum Suppression (NMS) merges coordinate offsets back to prevent false alerts.
+
+### 3. Complementary Sensor Speed Fusion
+Blends high-frequency, responsive IMU integration (forward acceleration $a_x$) with low-drift, stable GNSS (GPS) coordinates to calculate vehicle speed dynamically, minimizing drift:
+$$v_{\text{fused}}(t) = 0.98 \times (v_{\text{fused}}(t-1) + a_x \Delta t) + 0.02 \times v_{\text{GPS\_raw}}$$
+This complementary filter tracks ground truth speed in the CARLA simulator with an error of just **0.86 km/h RMSE**.
+
+### 4. Deep Reinforcement Learning (DRL) Deceleration Brain
+A PyTorch Deep Q-Network (DQN) agent controls vehicle speed in response to hazards. The agent receives a 4D state vector $[D_{\text{hazard}}, v_{\text{speed}}, S_{\text{severity}}, L_{\text{lane}}]$ and outputs discrete braking/accelerating forces:
+* **Action Space:** Coast ($a = -0.2 \text{ m/s}^2$), Light Brake ($a = -1.5 \text{ m/s}^2$), Medium Brake ($a = -4.0 \text{ m/s}^2$), Emergency Brake ($a = -7.5 \text{ m/s}^2$), and Accelerate ($a = +1.2 \text{ m/s}^2$).
+* **Results:** Training stabilized over 500 episodes in a custom physics simulator, reducing the vehicle collision rate to **0.0%** (100% safe stop rate).
+
+### 5. Explainable AI & Uncertainty Estimation
+* **HiResCAM:** Generates target-filtered class activation maps by multiplying activations and positive gradients element-wise, keeping attention heatmaps locked strictly onto the hazard bodies.
+* **Monte Carlo (MC) Dropout:** Injects 2D dropout layers into the YOLOv8 backbone. During inference, it runs 10 stochastic passes to evaluate class confidence variance and assign HIGH, MEDIUM, or LOW certainty tags to detections.
+
+---
+
+## 🗺️ System Flowchart
+
+The data pipeline and control loop structure of the decoupled parallel architecture are illustrated below:
+
+<div align="center">
+  <img src="assets/adas_system_architecture_flowchart_clean_1782209058387.png" alt="ADAS System Flowchart" width="700"/>
+</div>
+
+---
+
+## 📺 Visual Performance Gallery (CARLA Testing)
+
+Here is a side-by-side comparison of active HUD overlays under different camera perspectives spawned in CARLA:
+
+| Windshield Dashcam View (Speedbump) | Front-Bumper Outside View (Manhole) |
+| :---: | :---: |
+| <img src="assets/carla_driver_view_speedbump.png" alt="Windshield view speedbump" width="380"/> | <img src="assets/carla_outside_view_manhole.png" alt="Front bumper view manhole" width="380"/> |
 
 ---
 
@@ -45,11 +74,11 @@ This repository contains the complete implementation of a real-time Advanced Dri
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/GOURAB-BANDHU/road-hazards-detection.git
-   cd road-hazards-detection
+   git clone https://github.com/BandhuG005/Road-Hazards-Detection.git
+   cd Road-Hazards-Detection
    ```
-2. **Install the package and dependencies:**
-   You can install the dependencies directly:
+2. **Install package dependencies:**
+   You can install dependencies using requirements.txt:
    ```bash
    pip install -r requirements.txt
    ```
@@ -57,32 +86,31 @@ This repository contains the complete implementation of a real-time Advanced Dri
    ```bash
    pip install -e .
    ```
-3. **Place the weights files:**
-   Ensure the following model weight files are inside the `models/` directory:
-   * `best.pt` (Primary YOLOv8s Detection Weights)
-   * `best_large.pt` (Secondary YOLOv8l Ensemble Weights)
-   * `best_model_augmented.pth` (Segmentation Weights)
-   * `rl_deceleration_agent.pth` (RL Controller Weights)
+3. **Place the Weights:**
+   Ensure the following pre-trained weight files are inside the `models/` directory:
+   * `best.pt` (Primary YOLOv8s weights)
+   * `best_large.pt` (Secondary YOLOv8l weights)
+   * `best_model_augmented.pth` (U-Net road segmentation weights)
+   * `rl_deceleration_agent.pth` (DQN deceleration weights)
 
 ---
 
 ## 💻 Running the Pipeline
 
-### Run E2E Verification Check:
-To test the pipeline dynamically using synthetic video inputs:
+### 1. Run End-to-End Verification Check
+To run the simulation test harness on a synthetic approaching-hazard video and check telemetry logs:
 ```bash
 python -m src.verify_pipeline
 ```
 
-### Run on Your Own Video:
-To process an input video and render the RL-guided braking HUD overlay:
+### 2. Run HUD Visualizer on Your Video
+To run the parallel perception streams and the DRL braking controller on an input video:
 ```bash
 python run_pipeline.py --input path/to/video.mp4 --output logs/output_hud.mp4 --speed 60.0
 ```
 
-### Train the DRL Agent:
-To train the deceleration agent from scratch and plot new learning curves:
+### 3. Train the DQN Deceleration Agent
+To train the deceleration controller from scratch in the physics environment and generate learning curve plots:
 ```bash
 python src/rl_deceleration_control.py
 ```
-
