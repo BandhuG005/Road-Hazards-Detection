@@ -1,0 +1,20 @@
+# Gitignore for Road Hazards Detection Repo
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.DS_Store
+Thumbs.db
+*.log
+*.zip
+*.avi
+*.mp4
+temp/
+
+# Ignore model weight files (large files)
+models/*
+!models/.gitkeep
+
+# Ignore logs and snapshots
+logs/*
+!logs/.gitkeep
